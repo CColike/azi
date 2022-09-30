@@ -10,13 +10,11 @@ from concurrent.futures import ThreadPoolExecutor
 from random import choice
 from lxml import etree
 
-
 #设置请求头等参数，防止被反爬
 headers = {
    'Accept': '*/*',
    'Accept-Language': 'en-US,en;q=0.5',
    'User-Agent':'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.116 Safari/537.36',
-
 }
 def get_user_agent():
    '''获取随机用户代理'''
@@ -79,49 +77,46 @@ def re_video_info(text, pattern):
 
 def video_selector(aid):
     origin_video_url = 'https://www.bilibili.com/video/' + aid
+    headers.update({'User-Agent':get_user_agent()})
     res = requests.get(origin_video_url, headers=headers)
     # print(res.text)
     html = etree.HTML(res.text)#res.text 实际上是F12中的“网络”->“响应”的一个文本文件
     try:
         video_num = int(html.xpath('/html/body/div[2]/div[4]/div[2]/div/div[5]/div[1]/div[1]/span/text()')[0].split('/')[1][:-1])
+        #video_num = int(re_video_info(res.text, '"videoData":(.*?),"upData":{').split('/')[1][:-1])
+        # <span class="cur-page">(1/58)</span>
         # etree.html是将爬取的网页数据再生成标准网页格式数据，因为有些网页不规范写的时候
         # etree.parse是对标准网页格式数据进行解析用的
         video_info_temp = re_video_info(res.text, '"videoData":(.*?),"upData":{')
         #这样直接在字符串中进行匹配，然后将他转化成json，如果转化报错，去https://www.bejson.com/explore/index_new/看一眼
         #在线html、json格式化工具
         video_arr=[(aid+'/?p='+str(i+1),video_info_temp["pages"][i]["part"])for i in range(video_num)]
+
         return video_arr
     except:
         return [(aid, html.xpath('// *[ @ id = "viewbox_report"] / h1/text()')[0]), ]
 
-
-
-
-def video_download(aid,acc_quality):
-    for i in video_selector(aid):
-        print(i[0])
-        single_download(i,acc_quality)
-
+def video_download(aid,acc_quality,begin_idx):
+    p_list=video_selector(aid)
+    for i in range(begin_idx-1,len(p_list)):
+        print(p_list[i][0])
+        single_download(p_list[i],acc_quality)
+        time.sleep(10)######
 
 def single_download(aid, acc_quality):
     '''单个视频实现下载'''
     # 请求视频链接，获取信息
     origin_video_url = 'https://www.bilibili.com/video/' + aid[0]
     res = requests.get(origin_video_url, headers=headers)
-    html = etree.HTML(res.text)
-    # title = html.xpath('// *[ @ id = "viewbox_report"] / h1/text()')[0]
     title=aid[1]
     print('您当前正在下载：', title)
 
     video_info_temp = re_video_info(res.text, '__playinfo__=(.*?)</script><script>')
-    # print(video_info_temp)
     video_info = {}
     # 获取视频质量
     quality = video_info_temp['data']['accept_description'][acc_quality]
     # 获取视频时长
     video_info['duration'] = video_info_temp['data']['dash']['duration']
-    # 获取视频链接
-    video_url = video_info_temp['data']['dash']['video'][acc_quality]['baseUrl']
     # 获取音频链接
     audio_url = video_info_temp['data']['dash']['audio'][acc_quality]['baseUrl']
     # 计算视频时长
@@ -130,50 +125,28 @@ def single_download(aid, acc_quality):
     video_second = video_time % 60
     print('当前视频清晰度为{}，时长{}分{}秒'.format(quality, video_minute, video_second))
     # 调用函数下载保存视频
-    download_video_single(origin_video_url, video_url, audio_url, title)
-#https://cn-jsnj-fx-02-03.bilivideo.com/upgcxcode/94/05/590380594/590380594-1-30064.m4s?e=ig8euxZM2rNcNbdlhoNvNC8BqJIzNbfqXBvEqxTEto8BTrNvN0GvT90W5JZMkX_YN0MvXg8gNEV4NC8xNEV4N03eN0B5tZlqNxTEto8BTrNvNeZVuJ10Kj_g2UB02J0mN0B5tZlqNCNEto8BTrNvNC7MTX502C8f2jmMQJ6mqF2fka1mqx6gqj0eN0B599M=&uipk=5&nbs=1&deadline=1663662223&gen=playurlv2&os=bcache&oi=720649969&trid=000067fb98ddc6244a3f804e3dcf78c4f4eeu&mid=355683489&platform=pc&upsig=7053a8bac91a4b7d32da492ad54bd57f&uparams=e,uipk,nbs,deadline,gen,os,oi,trid,mid,platform&cdnid=3853&bvc=vod&nettype=0&orderid=0,3&agrr=1&bw=189016&logo=80000000
+    download_video_single(origin_video_url, audio_url, title)
 
-
-def download_video_single(referer_url, video_url, audio_url, video_name):
+def download_video_single(referer_url, audio_url, title):
     """单个视频下载"""
     # 更新请求头
     headers.update({"Referer": referer_url})
-    print("视频下载开始：%s" % video_name)
-    # 下载并保存视频
-    # video_content = requests.get(video_url, headers=headers)
-    # print('%s\t视频大小：' % video_name, round(int(video_content.headers.get('content-length', 0)) / 1024 / 1024, 2), '\tMB')
-    #
-    # received_video = 0
-    # with open('%s_video.mp4' % video_name, 'ab') as output:
-    #     headers['Range'] = 'bytes=' + str(received_video) + '-'
-    #     response = requests.get(video_url, headers=headers)
-    #     output.write(response.content)
+    print("音频下载开始：%s" % title)
     # 下载并保存音频
     audio_content = requests.get(audio_url, headers=headers)
-    print('%s\t音频大小：' % video_name, round(int(audio_content.headers.get('content-length', 0)) / 1024 / 1024, 2), '\tMB')
+    print('%s\t音频大小：'%title, round(int(audio_content.headers.get('content-length',0))/1024/1024,2),'\tMB')
     received_audio = 0
-    with open('%s.mp3' % video_name, 'ab') as output:
+    with open('%s.mp3' % title, 'ab') as output:
         headers['Range'] = 'bytes=' + str(received_audio) + '-'
         response = requests.get(audio_url, headers=headers)
         output.write(response.content)
         received_audio += len(response.content)
-    print("视频下载结束：%s" % video_name)
-    # video_audio_merge_single(video_name)
+    print("音频下载结束：%s" % title)
 
-
-
-def video_audio_merge_single(video_name):
-    '''使用ffmpeg单个视频音频合并'''
-    print("视频合成开始：%s" % video_name)
-    import subprocess
-    command = 'ffmpeg -i %s_video.mp4 -i %s_audio.mp4 -c copy %s.mp4 -y -loglevel quiet' % (
-        video_name, video_name, video_name)
-    subprocess.Popen(command, shell=True)
-    print("视频合成结束：%s" % video_name)
-
-
-
-
-
-# single_download("BV1XS4y1Y7JR",0)
-video_download("BV1wr4y1v7TA",0)
+# single_download("BV1wr4y1v7TA",0)
+# video_download("BV1wr4y1v7TA",0)
+# video_download("BV1gq4y167mq",0,174)
+# video_download("BV1Ya411z7WL",0,35)
+# BV1tS4y1C7Rk
+# BV19P4y1P75w
+video_download("BV1bi4y1f7fy",0,1)
